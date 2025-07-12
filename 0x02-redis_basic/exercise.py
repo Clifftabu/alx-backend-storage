@@ -7,7 +7,6 @@ from functools import wraps
 
 
 def count_calls(method: Callable) -> Callable:
-    """Decorator to count how many times a method is called."""
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         key = method.__qualname__
@@ -17,19 +16,18 @@ def count_calls(method: Callable) -> Callable:
 
 
 def call_history(method: Callable) -> Callable:
-    """Decorator to store the history of inputs and outputs for a method."""
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         input_key = f"{method.__qualname__}:inputs"
         output_key = f"{method.__qualname__}:outputs"
         self._redis.rpush(input_key, str(args))
         output = method(self, *args, **kwargs)
-        self._redis.rpush(output_key, output)
+        self._redis.rpush(output_key, str(output))
         return output
     return wrapper
 
+
 def replay(method: Callable) -> None:
-    """Displays the history of calls of a particular function."""
     r = redis.Redis()
     method_name = method.__qualname__
     calls = r.get(method_name)
@@ -44,24 +42,25 @@ def replay(method: Callable) -> None:
         print(f"{method_name}(*{inp.decode('utf-8')}) -> {out.decode('utf-8')}")
 
 
-
-
 class Cache:
 
     def __init__(self):
         self._redis = redis.Redis()
         self._redis.flushdb()
 
-
     @call_history
     @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
-       
         key = str(uuid.uuid4())
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+        elif isinstance(data, float):
+            data = str(data).encode('utf-8')
+        elif isinstance(data, int):
+            data = str(data).encode('utf-8')
         self._redis.set(key, data)
         return key
-    
-    
+
     def get(self, key: str, fn: Optional[Callable] = None) -> Union[str, bytes, int, float, None]:
         data = self._redis.get(key)
         if data is None:
@@ -69,10 +68,9 @@ class Cache:
         if fn:
             return fn(data)
         return data
-    
+
     def get_str(self, key: str) -> Optional[str]:
         return self.get(key, fn=lambda d: d.decode('utf-8'))
-    
+
     def get_int(self, key: str) -> Optional[int]:
-        return self.get(key, fn=int)
-    
+        return self.get(key, fn=lambda d: int(d.decode('utf-8')))
